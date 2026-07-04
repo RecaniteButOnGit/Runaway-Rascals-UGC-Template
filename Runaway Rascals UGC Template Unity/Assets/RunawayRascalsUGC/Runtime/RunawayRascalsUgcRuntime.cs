@@ -45,4 +45,8 @@ public class RRUgcManifest
     public string version;
     public string assetBundleFile;
     public string primaryAsset;
+    public MapSpawnSettings spawnSettings;
+    public string rascalScriptAsset;
+    public string playerSpawnPath;
+    public List<string> monsterSpawnPaths = new List<string>();
 }
