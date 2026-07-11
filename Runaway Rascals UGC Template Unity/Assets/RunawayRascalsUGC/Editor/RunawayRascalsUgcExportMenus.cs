@@ -33,6 +33,8 @@ public class RunawayRascalsMapExportWindow : EditorWindow
     private int monsterSpawnCount = 3;
     private bool allowAnyUgcMonster = true;
     private List<long> allowedMonsterModIds = new List<long>();
+    private bool overrideAmbientLighting;
+    private Color ambientColor = Color.gray;
     private TextAsset rascalScript;
 
     [MenuItem("Tools/Runaway Rascals/Map Export Menu")]
@@ -60,7 +62,16 @@ public class RunawayRascalsMapExportWindow : EditorWindow
             DrawMonsterIdList();
         }
 
+        overrideAmbientLighting = EditorGUILayout.Toggle("Override Ambient Lighting", overrideAmbientLighting);
+        using (new EditorGUI.DisabledScope(!overrideAmbientLighting))
+        {
+            ambientColor = EditorGUILayout.ColorField("Ambient Color", ambientColor);
+        }
+
         rascalScript = (TextAsset)EditorGUILayout.ObjectField("Rascal Script (.rs)", rascalScript, typeof(TextAsset), false);
+
+        EditorGUILayout.Space();
+        EditorGUILayout.HelpBox("Exports an Android AssetBundle. Limits: 40 MB compressed ZIP and 400,000 visible triangles.", MessageType.Info);
 
         EditorGUILayout.Space();
         if (GUILayout.Button("Export Map Mod"))
@@ -149,6 +160,11 @@ public class RunawayRascalsMapExportWindow : EditorWindow
                         ? new List<long>()
                         : allowedMonsterModIds.Where(id => id > 0).Distinct().ToList(),
                 },
+                new MapLightingSettings
+                {
+                    overrideAmbientLighting = overrideAmbientLighting,
+                    ambientColor = ambientColor,
+                },
                 rascalScript
             );
 
@@ -169,6 +185,11 @@ public class RunawayRascalsMapExportWindow : EditorWindow
                         allowAnyUgcMonster = exportArtifact.spawnSettings.allowAnyUgcMonster,
                         allowedMonsterModIds = new List<long>(exportArtifact.spawnSettings.allowedMonsterModIds),
                     },
+                    lightingSettings = new MapLightingSettings
+                    {
+                        overrideAmbientLighting = exportArtifact.lightingSettings.overrideAmbientLighting,
+                        ambientColor = exportArtifact.lightingSettings.ambientColor,
+                    },
                     rascalScriptAsset = exportArtifact.rascalScriptAssetPath,
                     playerSpawnPath = exportArtifact.playerSpawnPath,
                     monsterSpawnPaths = new List<string>(exportArtifact.monsterSpawnPaths),
@@ -179,6 +200,11 @@ public class RunawayRascalsMapExportWindow : EditorWindow
         }
         catch (System.OperationCanceledException)
         {
+        }
+        catch (Exception ex)
+        {
+            Debug.LogException(ex);
+            EditorUtility.DisplayDialog("Map Export Failed", ex.Message, "OK");
         }
     }
 
@@ -215,6 +241,7 @@ public class RunawayRascalsMonsterExportWindow : EditorWindow
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Export Zip", GetSuggestedArchiveFileName(visualPrefab != null ? visualPrefab.name : "Monster"));
+        EditorGUILayout.HelpBox("Exports an Android AssetBundle. Limits: 8 MB compressed ZIP and 25,000 visible triangles.", MessageType.Info);
 
         EditorGUILayout.Space();
         if (GUILayout.Button("Export Monster Mod"))
@@ -266,23 +293,31 @@ public class RunawayRascalsMonsterExportWindow : EditorWindow
             return;
         }
 
-        string prefabPath = RunawayRascalsUgcExportUtility.CreateMonsterVisualPrefab(visualPrefab, modTitle);
+        try
+        {
+            string prefabPath = RunawayRascalsUgcExportUtility.CreateMonsterVisualPrefab(visualPrefab, modTitle);
 
-        RunawayRascalsUgcExportUtility.BuildBundleAndArchive(
-            archivePath,
-            bundleFileName,
-            prefabPath,
-            new RRUgcManifest
-            {
-                contentType = "monster",
-                title = modTitle,
-                version = modVersion,
-                assetBundleFile = bundleFileName,
-                primaryAsset = prefabPath,
-            }
-        );
+            RunawayRascalsUgcExportUtility.BuildBundleAndArchive(
+                archivePath,
+                bundleFileName,
+                prefabPath,
+                new RRUgcManifest
+                {
+                    contentType = "monster",
+                    title = modTitle,
+                    version = modVersion,
+                    assetBundleFile = bundleFileName,
+                    primaryAsset = prefabPath,
+                }
+            );
 
-        EditorUtility.DisplayDialog("Monster Export", $"Monster mod zip exported to:\n{archivePath}", "OK");
+            EditorUtility.DisplayDialog("Monster Export", $"Monster mod zip exported to:\n{archivePath}", "OK");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogException(ex);
+            EditorUtility.DisplayDialog("Monster Export Failed", ex.Message, "OK");
+        }
     }
 
     private static string GetSuggestedArchiveBaseName(string sourceName)
@@ -299,6 +334,10 @@ public class RunawayRascalsMonsterExportWindow : EditorWindow
 internal static class RunawayRascalsUgcExportUtility
 {
     private const string GeneratedFolder = "Assets/RunawayRascalsUGC/Generated";
+    private const long MaxMapArchiveBytes = 40L * 1024L * 1024L;
+    private const long MaxMonsterArchiveBytes = 8L * 1024L * 1024L;
+    private const long MaxMapVisibleTriangles = 400000L;
+    private const long MaxMonsterVisibleTriangles = 25000L;
 
     public static bool ValidateBundleFileName(string fileName)
     {
@@ -326,7 +365,7 @@ internal static class RunawayRascalsUgcExportUtility
         return string.IsNullOrWhiteSpace(fileName) ? "RunawayRascalsUGC" : fileName;
     }
 
-    public static RunawayRascalsMapExportArtifact CreateMapPrefabFromScene(SceneAsset sceneAsset, string title, MapSpawnSettings settings, TextAsset rascalScript)
+    public static RunawayRascalsMapExportArtifact CreateMapPrefabFromScene(SceneAsset sceneAsset, string title, MapSpawnSettings settings, MapLightingSettings lightingSettings, TextAsset rascalScript)
     {
         EnsureGeneratedFolder();
 
@@ -359,6 +398,7 @@ internal static class RunawayRascalsUgcExportUtility
 
             RRMapContentDefinition content = exportRoot.AddComponent<RRMapContentDefinition>();
             content.spawnSettings = settings;
+            content.lightingSettings = lightingSettings ?? new MapLightingSettings();
             content.rascalScriptReference = new RascalScriptReference { textAsset = rascalScript };
 
             MapRuntimeAnchor anchor = exportRoot.GetComponentInChildren<MapRuntimeAnchor>(true);
@@ -385,6 +425,11 @@ internal static class RunawayRascalsUgcExportUtility
                     allowedMonsterModIds = settings.allowedMonsterModIds != null
                         ? settings.allowedMonsterModIds.Where(id => id > 0).Distinct().ToList()
                         : new List<long>(),
+                },
+                lightingSettings = new MapLightingSettings
+                {
+                    overrideAmbientLighting = content.lightingSettings.overrideAmbientLighting,
+                    ambientColor = content.lightingSettings.ambientColor,
                 },
                 rascalScriptAssetPath = rascalScript != null ? AssetDatabase.GetAssetPath(rascalScript) : null,
                 playerSpawnPath = playerSpawnPath,
@@ -431,18 +476,24 @@ internal static class RunawayRascalsUgcExportUtility
 
         try
         {
+            ValidateVisibleTriangleCount(assetPath, manifest?.contentType);
+
             var build = new AssetBundleBuild
             {
                 assetBundleName = bundleFileName,
                 assetNames = new[] { assetPath },
             };
 
-            BuildPipeline.BuildAssetBundles(
+            AssetBundleManifest buildResult = BuildPipeline.BuildAssetBundles(
                 tempOutputFolder,
                 new[] { build },
                 BuildAssetBundleOptions.None,
-                EditorUserBuildSettings.activeBuildTarget
+                BuildTarget.Android
             );
+            if (buildResult == null)
+            {
+                throw new InvalidOperationException("Android AssetBundle build failed. Make sure Android Build Support is installed for this Unity editor.");
+            }
 
             string manifestPath = Path.Combine(tempOutputFolder, RRUgcManifest.FileName);
             File.WriteAllText(manifestPath, JsonUtility.ToJson(manifest, true));
@@ -457,17 +508,25 @@ internal static class RunawayRascalsUgcExportUtility
                 ? archivePath
                 : $"{archivePath}.zip";
 
-            Directory.CreateDirectory(Path.GetDirectoryName(normalizedArchivePath));
-            if (File.Exists(normalizedArchivePath))
-            {
-                File.Delete(normalizedArchivePath);
-            }
+            string archiveDirectory = Path.GetDirectoryName(normalizedArchivePath);
+            if (!string.IsNullOrWhiteSpace(archiveDirectory)) Directory.CreateDirectory(archiveDirectory);
+            string temporaryArchivePath = Path.Combine(tempOutputFolder, "ugc-export.zip");
 
-            using (ZipArchive archive = ZipFile.Open(normalizedArchivePath, ZipArchiveMode.Create))
+            using (ZipArchive archive = ZipFile.Open(temporaryArchivePath, ZipArchiveMode.Create))
             {
                 archive.CreateEntryFromFile(bundlePath, bundleFileName, System.IO.Compression.CompressionLevel.Optimal);
                 archive.CreateEntryFromFile(manifestPath, RRUgcManifest.FileName, System.IO.Compression.CompressionLevel.Optimal);
             }
+
+            long maximumBytes = GetMaximumArchiveBytes(manifest?.contentType);
+            long archiveBytes = new FileInfo(temporaryArchivePath).Length;
+            if (archiveBytes > maximumBytes)
+            {
+                throw new InvalidOperationException($"The compressed {manifest?.contentType ?? "UGC"} ZIP is {FormatMegabytes(archiveBytes)} MB. The maximum is {FormatMegabytes(maximumBytes)} MB.");
+            }
+
+            if (File.Exists(normalizedArchivePath)) File.Delete(normalizedArchivePath);
+            File.Move(temporaryArchivePath, normalizedArchivePath);
         }
         finally
         {
@@ -479,6 +538,113 @@ internal static class RunawayRascalsUgcExportUtility
             AssetDatabase.RemoveUnusedAssetBundleNames();
             AssetDatabase.Refresh();
         }
+    }
+
+    private static long GetMaximumArchiveBytes(string contentType)
+    {
+        if (string.Equals(contentType, "map", StringComparison.OrdinalIgnoreCase)) return MaxMapArchiveBytes;
+        if (string.Equals(contentType, "monster", StringComparison.OrdinalIgnoreCase)) return MaxMonsterArchiveBytes;
+        throw new InvalidOperationException($"Unsupported UGC content type '{contentType}'.");
+    }
+
+    private static string FormatMegabytes(long bytes)
+    {
+        return (bytes / (1024d * 1024d)).ToString("0.##");
+    }
+
+    private static void ValidateVisibleTriangleCount(string assetPath, string contentType)
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+        if (prefab == null)
+        {
+            throw new InvalidOperationException($"Could not inspect generated prefab '{assetPath}' for its triangle count.");
+        }
+
+        long visibleTriangles = CountMaximumVisibleTriangles(prefab);
+        long maximumTriangles = GetMaximumVisibleTriangles(contentType);
+        if (visibleTriangles > maximumTriangles)
+        {
+            throw new InvalidOperationException($"The {contentType ?? "UGC"} contains {visibleTriangles:N0} visible triangles. The maximum is {maximumTriangles:N0}.");
+        }
+    }
+
+    private static long GetMaximumVisibleTriangles(string contentType)
+    {
+        if (string.Equals(contentType, "map", StringComparison.OrdinalIgnoreCase)) return MaxMapVisibleTriangles;
+        if (string.Equals(contentType, "monster", StringComparison.OrdinalIgnoreCase)) return MaxMonsterVisibleTriangles;
+        throw new InvalidOperationException($"Unsupported UGC content type '{contentType}'.");
+    }
+
+    private static long CountMaximumVisibleTriangles(GameObject root)
+    {
+        var lodRenderers = new HashSet<Renderer>();
+        long total = 0;
+
+        foreach (LODGroup lodGroup in root.GetComponentsInChildren<LODGroup>(true))
+        {
+            if (!lodGroup.enabled || !IsHierarchyActive(lodGroup.transform)) continue;
+            long largestLod = 0;
+            foreach (LOD lod in lodGroup.GetLODs())
+            {
+                long lodTriangles = 0;
+                foreach (Renderer renderer in lod.renderers)
+                {
+                    if (!IsRendererVisible(renderer)) continue;
+                    lodRenderers.Add(renderer);
+                    lodTriangles += CountRendererTriangles(renderer);
+                }
+                largestLod = Math.Max(largestLod, lodTriangles);
+            }
+            total += largestLod;
+        }
+
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!IsRendererVisible(renderer) || lodRenderers.Contains(renderer)) continue;
+            total += CountRendererTriangles(renderer);
+        }
+
+        return total;
+    }
+
+    private static bool IsRendererVisible(Renderer renderer)
+    {
+        return renderer != null && renderer.enabled && IsHierarchyActive(renderer.transform);
+    }
+
+    private static bool IsHierarchyActive(Transform transform)
+    {
+        for (Transform current = transform; current != null; current = current.parent)
+        {
+            if (!current.gameObject.activeSelf) return false;
+        }
+        return true;
+    }
+
+    private static long CountRendererTriangles(Renderer renderer)
+    {
+        Mesh mesh = null;
+        if (renderer is SkinnedMeshRenderer skinnedMeshRenderer)
+        {
+            mesh = skinnedMeshRenderer.sharedMesh;
+        }
+        else if (renderer is MeshRenderer meshRenderer)
+        {
+            MeshFilter meshFilter = meshRenderer.GetComponent<MeshFilter>();
+            mesh = meshFilter != null ? meshFilter.sharedMesh : null;
+        }
+
+        if (mesh == null) return 0;
+
+        long triangles = 0;
+        for (int subMesh = 0; subMesh < mesh.subMeshCount; subMesh++)
+        {
+            if (mesh.GetTopology(subMesh) == MeshTopology.Triangles)
+            {
+                triangles += (long)mesh.GetIndexCount(subMesh) / 3L;
+            }
+        }
+        return triangles;
     }
 
     private static void EnsureGeneratedFolder()
@@ -558,6 +724,7 @@ internal class RunawayRascalsMapExportArtifact
 {
     public string prefabPath;
     public MapSpawnSettings spawnSettings;
+    public MapLightingSettings lightingSettings;
     public string rascalScriptAssetPath;
     public string playerSpawnPath;
     public List<string> monsterSpawnPaths = new List<string>();

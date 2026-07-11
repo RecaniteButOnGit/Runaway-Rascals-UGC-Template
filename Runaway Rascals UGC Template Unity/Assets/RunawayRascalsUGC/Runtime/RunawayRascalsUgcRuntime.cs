@@ -17,6 +17,13 @@ public class RascalScriptReference
     public TextAsset textAsset;
 }
 
+[Serializable]
+public class MapLightingSettings
+{
+    public bool overrideAmbientLighting;
+    public Color ambientColor = Color.gray;
+}
+
 public class MapRuntimeAnchor : MonoBehaviour
 {
     [Header("Spawns")]
@@ -27,6 +34,7 @@ public class MapRuntimeAnchor : MonoBehaviour
 public class RRMapContentDefinition : MonoBehaviour
 {
     public MapSpawnSettings spawnSettings = new MapSpawnSettings();
+    public MapLightingSettings lightingSettings = new MapLightingSettings();
     public RascalScriptReference rascalScriptReference = new RascalScriptReference();
     public MapRuntimeAnchor runtimeAnchor;
 }
@@ -46,6 +54,7 @@ public class RRUgcManifest
     public string assetBundleFile;
     public string primaryAsset;
     public MapSpawnSettings spawnSettings;
+    public MapLightingSettings lightingSettings;
     public string rascalScriptAsset;
     public string playerSpawnPath;
     public List<string> monsterSpawnPaths = new List<string>();
